@@ -18,7 +18,7 @@ pub struct Updater<'a, 'w, 's, T: Transition> {
     query: &'a Query<'w, 's, (&'static Node, &'static Transform)>,
     cursor: usize,
     transition: T,
-    skip_transition: bool,
+    transition_root: bool,
 }
 
 struct Child {
@@ -52,7 +52,7 @@ impl<'w, 's> Mount<'w, 's> {
             query: &self.query,
             cursor: 0,
             transition,
-            skip_transition: false,
+            transition_root: true,
         });
     }
 }
@@ -77,7 +77,7 @@ where
             cursor: self.cursor,
             parent: self.parent.take(),
             transition,
-            skip_transition: self.skip_transition,
+            transition_root: self.transition_root,
         };
 
         f(&mut sub);
@@ -99,7 +99,7 @@ where
                 &mut *self.commands,
                 self.query,
                 self.transition,
-                self.skip_transition,
+                self.transition_root,
             )
         } else {
             self.insert(uid, bundle())
@@ -122,7 +122,7 @@ where
                 &mut *self.commands,
                 self.query,
                 self.transition,
-                self.skip_transition,
+                self.transition_root,
             )
         } else {
             self.insert(uid, bundle)
@@ -139,13 +139,6 @@ where
                     self.transition.remove(self.commands.entity(child.entity));
                 }
                 // uid has been found, and it's now at self.cursor.
-                let entity = self.children[self.cursor].entity;
-                if let Ok((node, transform)) = self.query.get(entity) {
-                    self.transition.update(
-                        self.commands.entity(entity),
-                        Rect::from_center_size(transform.translation.truncate(), node.size()),
-                    );
-                }
                 return true;
             }
         }
@@ -158,14 +151,11 @@ where
     where
         B: Bundle,
     {
-        let entity = self.commands.spawn(bundle);
+        let mut entity = self.commands.spawn(bundle);
+        self.transition.insert(&mut entity, self.transition_root);
         let child = Child {
             uid,
-            entity: if self.skip_transition {
-                entity.id()
-            } else {
-                self.transition.insert(entity)
-            },
+            entity: entity.id(),
             children: vec![],
         };
 
@@ -175,7 +165,7 @@ where
             &mut *self.commands,
             self.query,
             self.transition,
-            true,
+            false,
         )
     }
 }
@@ -204,7 +194,7 @@ impl Child {
         commands: &'a mut Commands<'w, 's>,
         query: &'a Query<'w, 's, (&'static Node, &'static Transform)>,
         transition: T,
-        skip_transition: bool,
+        transition_root: bool,
     ) -> Updater<'a, 'w, 's, T>
     where
         T: Transition,
@@ -216,7 +206,7 @@ impl Child {
             query,
             cursor: 0,
             transition,
-            skip_transition,
+            transition_root,
         }
     }
 }

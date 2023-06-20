@@ -41,7 +41,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 fn some_ui_system(mut mount: Mount, state: Res<Counter>, assets: Res<LoadedAssets>) {
     if state.is_changed() {
         let slide = SlideTransition {
-            direction: Vec2::new(0.0, -8.0),
+            direction: Vec2::new(-80.0, 0.0),
             duration: Duration::from_millis(300),
         };
         mount.update_with_animation(slide, |bldr| {

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bevy::{
     input::{keyboard::KeyboardInput, ButtonState},
     prelude::*,
@@ -38,16 +40,24 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 fn some_ui_system(mut mount: Mount, state: Res<Counter>, assets: Res<LoadedAssets>) {
     if state.is_changed() {
-        mount.update(|bldr| {
+        let slide = SlideTransition {
+            direction: Vec2::new(0.0, -8.0),
+            duration: Duration::from_millis(300),
+        };
+        mount.update_with_animation(slide, |bldr| {
             bldr.node(id!(), vbox).with(|bldr| {
-                bldr.node(id!(), || button().on_click(on_up).on_event(on_up_key))
-                    .node(id!(), || label("up", assets.text_style.clone()));
+                if state.value < 10 {
+                    bldr.node(id!(), || button().on_click(on_up).on_event(on_up_key))
+                        .node(id!(), || label("up", assets.text_style.clone()));
+                }
                 bldr.dyn_node(
                     id!(),
                     label(format!("count: {}", state.value), assets.text_style.clone()),
                 );
-                bldr.node(id!(), || button().on_click(on_down).on_event(on_down_key))
-                    .node(id!(), || label("down", assets.text_style.clone()));
+                if state.value > 0 {
+                    bldr.node(id!(), || button().on_click(on_down).on_event(on_down_key))
+                        .node(id!(), || label("down", assets.text_style.clone()));
+                }
             });
         });
     }
@@ -57,14 +67,14 @@ fn on_up(mut state: ResMut<Counter>) {
     state.value += 1;
 }
 
+fn on_down(mut state: ResMut<Counter>) {
+    state.value -= 1;
+}
+
 fn on_up_key(In(key): In<KeyboardInput>, mut state: ResMut<Counter>) {
     let Some(KeyCode::Up) = key.key_code else { return; };
     let ButtonState::Pressed = key.state else { return; };
     state.value += 10;
-}
-
-fn on_down(mut state: ResMut<Counter>) {
-    state.value -= 1;
 }
 
 fn on_down_key(In(key): In<KeyboardInput>, mut state: ResMut<Counter>) {

@@ -2,6 +2,7 @@ mod base_handler;
 mod event_handler;
 mod interaction_handler;
 mod manager;
+mod transition;
 
 pub use event_handler::{EventHandler, SetEventHandler};
 use interaction_handler::{
@@ -9,10 +10,12 @@ use interaction_handler::{
 };
 pub use interaction_handler::{InteractionHandler, SetInteractionHandler};
 pub use manager::{Mount, Updater};
+pub use transition::*;
 
 use bevy::{
     input::{gamepad::GamepadEvent, keyboard::KeyboardInput},
     prelude::*,
+    ui::UiSystem,
 };
 
 pub struct ReactivePlugin;
@@ -25,5 +28,10 @@ impl Plugin for ReactivePlugin {
         app.add_system(make_interaction_handler_system::<OnHoverEnd>());
         app.add_system(event_handler::make_event_handler_system::<KeyboardInput>());
         app.add_system(event_handler::make_event_handler_system::<GamepadEvent>());
+        app.add_system(
+            slide_transition_system
+                .in_set(UiSystem::Flex)
+                .after(bevy::ui::flex_node_system),
+        );
     }
 }

@@ -1,4 +1,8 @@
-use bevy::{ecs::system::EntityCommands, math::vec2, prelude::*};
+use bevy::{
+    ecs::{query::QueryEntityError, system::EntityCommands},
+    math::vec2,
+    prelude::*,
+};
 
 mod slide;
 pub use slide::*;
@@ -28,39 +32,94 @@ impl Transition for DefaultTransition {
     }
 }
 
-pub fn get_item_anchor(style: &Style) -> Vec2 {
-    match style.display {
+#[derive(Clone, Copy)]
+pub struct Placement {
+    position: Vec2,
+    subject_size: Vec2,
+    parent_size: Vec2,
+}
+
+impl Placement {
+    pub fn new(
+        query: &Query<(&Node, &Style)>,
+        parent: Entity,
+        subject: Entity,
+        position: Vec2,
+    ) -> Result<Self, QueryEntityError> {
+        let (parent_node, _parent_style) = query.get(parent)?;
+        let (subject_node, _subject_style) = query.get(subject)?;
+        Ok(Self {
+            parent_size: parent_node.size(),
+            subject_size: subject_node.size(),
+            position,
+        })
+    }
+
+    pub fn preserve_anchor(
+        &mut self,
+        query: &Query<(&Node, &Style)>,
+        parent: Entity,
+        subject: Entity,
+    ) -> Result<(), QueryEntityError> {
+        let (parent_node, parent_style) = query.get(parent)?;
+        let (subject_node, subject_style) = query.get(subject)?;
+        let anchor = get_anchor(parent_style, subject_style);
+
+        let subject_anchor_point = get_anchor_point(self.position, self.subject_size, anchor);
+        let parent_anchor_point = get_anchor_point(Vec2::ZERO, self.parent_size, anchor);
+        let anchor_offset = subject_anchor_point - parent_anchor_point;
+
+        self.subject_size = subject_node.size();
+        self.parent_size = parent_node.size();
+        let subject_anchor_point = get_anchor_point(Vec2::ZERO, self.subject_size, anchor);
+        let parent_anchor_point = get_anchor_point(Vec2::ZERO, self.parent_size, anchor);
+        self.position = parent_anchor_point + anchor_offset - subject_anchor_point;
+
+        Ok(())
+    }
+}
+
+fn get_anchor(parent: &Style, subject: &Style) -> Vec2 {
+    match parent.display {
         Display::Flex => (),
         Display::None => return default(),
     }
-    match (style.flex_direction, style.align_items) {
-        (FlexDirection::Row, AlignItems::Start) => vec2(-1.0, -1.0),
-        (FlexDirection::Row, AlignItems::End) => vec2(-1.0, 1.0),
-        (FlexDirection::Row, AlignItems::FlexStart) => vec2(-1.0, -1.0),
-        (FlexDirection::Row, AlignItems::FlexEnd) => vec2(-1.0, 1.0),
-        (FlexDirection::Row, AlignItems::Center) => vec2(-1.0, 0.0),
-        (FlexDirection::Row, AlignItems::Baseline) => vec2(-1.0, 0.0),
-        (FlexDirection::Row, AlignItems::Stretch) => vec2(-1.0, 0.0),
-        (FlexDirection::Column, AlignItems::Start) => vec2(-1.0, -1.0),
-        (FlexDirection::Column, AlignItems::End) => vec2(1.0, -1.0),
-        (FlexDirection::Column, AlignItems::FlexStart) => vec2(-1.0, -1.0),
-        (FlexDirection::Column, AlignItems::FlexEnd) => vec2(1.0, -1.0),
-        (FlexDirection::Column, AlignItems::Center) => vec2(0.0, -1.0),
-        (FlexDirection::Column, AlignItems::Baseline) => vec2(0.0, -1.0),
-        (FlexDirection::Column, AlignItems::Stretch) => vec2(0.0, -1.0),
-        (FlexDirection::RowReverse, AlignItems::Start) => vec2(1.0, -1.0),
-        (FlexDirection::RowReverse, AlignItems::End) => vec2(1.0, 1.0),
-        (FlexDirection::RowReverse, AlignItems::FlexStart) => vec2(1.0, 1.0),
-        (FlexDirection::RowReverse, AlignItems::FlexEnd) => vec2(1.0, -1.0),
-        (FlexDirection::RowReverse, AlignItems::Center) => vec2(1.0, 0.0),
-        (FlexDirection::RowReverse, AlignItems::Baseline) => vec2(1.0, 0.0),
-        (FlexDirection::RowReverse, AlignItems::Stretch) => vec2(1.0, 0.0),
-        (FlexDirection::ColumnReverse, AlignItems::Start) => vec2(-1.0, 1.0),
-        (FlexDirection::ColumnReverse, AlignItems::End) => vec2(1.0, 1.0),
-        (FlexDirection::ColumnReverse, AlignItems::FlexStart) => vec2(1.0, 1.0),
-        (FlexDirection::ColumnReverse, AlignItems::FlexEnd) => vec2(-1.0, 1.0),
-        (FlexDirection::ColumnReverse, AlignItems::Center) => vec2(0.0, 1.0),
-        (FlexDirection::ColumnReverse, AlignItems::Baseline) => vec2(0.0, 1.0),
-        (FlexDirection::ColumnReverse, AlignItems::Stretch) => vec2(0.0, 1.0),
+
+    let reverse = match parent.flex_direction {
+        FlexDirection::Row | FlexDirection::Column => -0.5,
+        FlexDirection::RowReverse | FlexDirection::ColumnReverse => 0.5,
+    };
+
+    let cross = match subject.align_self {
+        AlignSelf::Auto => match parent.align_items {
+            AlignItems::Start => 0.0,
+            AlignItems::End => 1.0,
+            AlignItems::FlexStart => 0.5 - reverse,
+            AlignItems::FlexEnd => 0.5 + reverse,
+            AlignItems::Center => 0.5,
+            AlignItems::Baseline => 0.5,
+            AlignItems::Stretch => 0.5,
+        },
+        AlignSelf::Start => 0.0,
+        AlignSelf::End => 1.0,
+        AlignSelf::FlexStart => 0.5 - reverse,
+        AlignSelf::FlexEnd => 0.5 + reverse,
+        AlignSelf::Center => 0.5,
+        AlignSelf::Baseline => 0.5,
+        AlignSelf::Stretch => 0.5,
+    };
+
+    match parent.flex_direction {
+        FlexDirection::Row => vec2(0.0, cross),
+        FlexDirection::Column => vec2(cross, 0.0),
+        FlexDirection::RowReverse => vec2(1.0, cross),
+        FlexDirection::ColumnReverse => vec2(cross, 1.0),
     }
+}
+
+fn get_anchor_point(pos: Vec2, size: Vec2, anchor: Vec2) -> Vec2 {
+    vec2(
+        pos.x - size.x * 0.5 + size.x * anchor.x,
+        pos.y - size.y * 0.5 + size.y * anchor.y,
+    )
 }

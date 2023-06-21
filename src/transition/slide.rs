@@ -11,7 +11,7 @@ pub struct SlideTransition {
 #[derive(Clone, Copy)]
 enum Phase {
     Inserted(Instant, bool),
-    Resident(Vec3, Vec2),
+    Resident(Placement),
     Removed(Instant),
 }
 
@@ -41,46 +41,60 @@ impl Transition for SlideTransition {
 }
 
 pub(crate) fn slide_transition_system(
-    mut query: Query<(Entity, &mut Slide, &Node, &mut Transform)>,
+    mut query: Query<(Entity, Option<&Parent>, &mut Slide, &mut Transform)>,
+    parent_query: Query<(&Node, &Style)>,
     mut commands: Commands,
     time: Res<Time>,
 ) {
     let Some(time) = time.last_update() else { return; };
 
-    for (entity, mut transition, node, mut transform) in query.iter_mut() {
-        match transition.phase {
+    for (entity, parent, mut slide, mut transform) in query.iter_mut() {
+        match slide.phase {
             Phase::Inserted(start, root) => {
                 let t = if let Some(duration) = time.checked_duration_since(start) {
-                    (duration.as_secs_f32() / transition.duration.as_secs_f32()).clamp(0.0, 1.0)
+                    (duration.as_secs_f32() / slide.duration.as_secs_f32()).clamp(0.0, 1.0)
                 } else {
                     0.0
                 };
 
-                if t < 1.0  && root {
-                    transform.translation += (transition.direction * (1.0 - t)).extend(0.0);
+                if t < 1.0 && root {
+                    transform.translation += (slide.direction * (1.0 - t)).extend(0.0);
                     transform.scale = Vec3::new(t, t, 1.0);
-                } else {
+                } else if let Some(parent) = parent {
                     transform.scale = Vec3::ONE;
-                    transition.phase = Phase::Resident(transform.translation, node.size());
+                    slide.phase = Phase::Resident(
+                        Placement::new(
+                            &parent_query,
+                            parent.get(),
+                            entity,
+                            transform.translation.truncate(),
+                        )
+                        .unwrap(),
+                    );
+                } else {
+                    commands.entity(entity).remove::<Slide>();
                 }
             }
-            Phase::Resident(ref mut pos, ref mut size) => {
-                let size_difference = node.size() - *size;
-                *size = node.size();
-
-                *pos += size_difference.extend(0.0) * 0.5;
-                *pos = pos.lerp(transform.translation, 0.2);
-                transform.translation = *pos;
-            },
+            Phase::Resident(ref mut placement) => {
+                if let Some(parent) = parent {
+                    placement
+                        .preserve_anchor(&parent_query, parent.get(), entity)
+                        .ok();
+                    placement.position = placement
+                        .position
+                        .lerp(transform.translation.truncate(), 0.1);
+                    transform.translation = placement.position.extend(transform.translation.z);
+                }
+            }
             Phase::Removed(start) => {
                 let t = if let Some(duration) = time.checked_duration_since(start) {
-                    (duration.as_secs_f32() / transition.duration.as_secs_f32()).clamp(0.0, 1.0)
+                    (duration.as_secs_f32() / slide.duration.as_secs_f32()).clamp(0.0, 1.0)
                 } else {
                     0.0
                 };
 
                 if t < 1.0 {
-                    transform.translation += (transition.direction * t).extend(0.0);
+                    transform.translation += (slide.direction * t).extend(0.0);
                     transform.scale = Vec3::new(1.0 - t, 1.0 - t, 1.0);
                 } else {
                     commands.entity(entity).despawn_recursive();

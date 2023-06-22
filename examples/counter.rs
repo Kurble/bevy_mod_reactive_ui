@@ -44,22 +44,26 @@ fn some_ui_system(mut mount: Mount, state: Res<Counter>, assets: Res<LoadedAsset
             direction: Vec2::new(-80.0, 0.0),
             duration: Duration::from_millis(300),
         };
-        mount.update_with_animation(slide, |bldr| {
-            bldr.node(id!(), vbox).with(|bldr| {
-                if state.value < 10 {
-                    bldr.node(id!(), || button().on_click(on_up).on_event(on_up_key))
-                        .node(id!(), || label("up", assets.text_style.clone()));
-                }
-                bldr.dyn_node(
-                    id!(),
-                    label(format!("count: {}", state.value), assets.text_style.clone()),
-                );
-                if state.value > 0 {
-                    bldr.node(id!(), || button().on_click(on_down).on_event(on_down_key))
-                        .node(id!(), || label("down", assets.text_style.clone()));
-                }
+        mount.update_with_transition(&slide, |frag| {
+            frag.node(id!(), vbox).with(|frag| {
+                counter(frag, &state, &assets);
             });
         });
+    }
+}
+
+fn counter(frag: &mut Fragment, state: &Counter, assets: &LoadedAssets) {
+    if state.value < 10 {
+        frag.node(id!(), || button().on_click(on_up).on_event(on_up_key))
+            .node(id!(), || label("up", assets.text_style.clone()));
+    }
+    frag.dyn_node(
+        id!(),
+        label(format!("count: {}", state.value), assets.text_style.clone()),
+    );
+    if state.value > 0 {
+        frag.node(id!(), || button().on_click(on_down).on_event(on_down_key))
+            .node(id!(), || label("down", assets.text_style.clone()));
     }
 }
 

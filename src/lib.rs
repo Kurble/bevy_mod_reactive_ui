@@ -1,7 +1,7 @@
 mod base_handler;
 mod event_handler;
 mod interaction_handler;
-mod manager;
+mod mount;
 mod transition;
 
 pub use event_handler::{EventHandler, SetEventHandler};
@@ -9,7 +9,7 @@ use interaction_handler::{
     make_interaction_handler_system, OnClick, OnClickEnd, OnHover, OnHoverEnd,
 };
 pub use interaction_handler::{InteractionHandler, SetInteractionHandler};
-pub use manager::{Mount, Updater};
+pub use mount::{Mount, Fragment};
 pub use transition::*;
 
 use bevy::{

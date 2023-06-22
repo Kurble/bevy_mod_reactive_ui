@@ -8,7 +8,7 @@ mod slide;
 pub use slide::*;
 
 /// Trait for adding transition components to entities as they go through their lifecycle.
-pub trait Transition: Copy {
+pub trait Transition {
     /// Called for entities that have been newly inserted.
     /// When `root` is `true`, the entity is being inserted in an existing parent,
     /// otherwise the parent is also newly inserted.

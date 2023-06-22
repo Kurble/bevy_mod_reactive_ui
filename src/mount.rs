@@ -11,13 +11,13 @@ pub struct Mount<'w, 's> {
     commands: Commands<'w, 's>,
 }
 
-pub struct Updater<'a, 'w, 's, T: Transition> {
+pub struct Fragment<'a, 'w, 's> {
     parent: Option<Entity>,
     commands: &'a mut Commands<'w, 's>,
     children: &'a mut Vec<Child>,
     query: &'a Query<'w, 's, (&'static Node, &'static Transform)>,
     cursor: usize,
-    transition: T,
+    transition: &'a dyn Transition,
     transition_root: bool,
 }
 
@@ -33,19 +33,18 @@ struct InsertChildrenInOrder {
 }
 
 impl<'w, 's> Mount<'w, 's> {
-    pub fn update<F>(&mut self, children: F)
+    pub fn update<F>(&mut self, fragment: F)
     where
-        F: FnOnce(&mut Updater<DefaultTransition>),
+        F: FnOnce(&mut Fragment),
     {
-        self.update_with_animation(DefaultTransition, children);
+        self.update_with_transition(&DefaultTransition, fragment);
     }
 
-    pub fn update_with_animation<F, T>(&mut self, transition: T, children: F)
+    pub fn update_with_transition<F>(&mut self, transition: &dyn Transition, fragment: F)
     where
-        F: FnOnce(&mut Updater<T>),
-        T: Transition,
+        F: FnOnce(&mut Fragment),
     {
-        children(&mut Updater {
+        let mut updater = Fragment {
             parent: None,
             commands: &mut self.commands,
             children: &mut *self.root,
@@ -53,24 +52,22 @@ impl<'w, 's> Mount<'w, 's> {
             cursor: 0,
             transition,
             transition_root: true,
-        });
+        };
+        fragment(&mut updater);
     }
 }
 
-impl<'a, 'w, 's, T> Updater<'a, 'w, 's, T>
-where
-    T: Transition,
-{
-    pub fn with<F: FnOnce(&mut Self)>(mut self, f: F) {
-        f(&mut self);
+impl<'a, 'w, 's> Fragment<'a, 'w, 's> {
+    pub fn with<F: FnOnce(&mut Fragment)>(mut self, fragment: F) {
+        fragment(&mut self);
     }
 
-    pub fn with_animation<F: for<'b> FnOnce(&mut Updater<'b, 'w, 's, U>), U: Transition>(
+    pub fn with_transition<F: FnOnce(&mut Fragment)>(
         mut self,
-        transition: U,
-        f: F,
+        transition: &dyn Transition,
+        fragment: F,
     ) {
-        let mut sub = Updater::<U> {
+        let mut updater = Fragment {
             children: &mut *self.children,
             commands: &mut *self.commands,
             query: self.query,
@@ -80,15 +77,15 @@ where
             transition_root: self.transition_root,
         };
 
-        f(&mut sub);
+        fragment(&mut updater);
 
-        self.cursor = sub.cursor;
+        self.cursor = updater.cursor;
     }
 
     /// Insert or update a node. The uid must be unique.
     /// If the entity already exists, it's bundle is not updated.
     /// The children of the node will be updated using the closure passed in `children`.
-    pub fn node<'b, F, B>(&'b mut self, uid: u64, bundle: F) -> Updater<'b, 'w, 's, T>
+    pub fn node<'b, F, B>(&'b mut self, uid: u64, bundle: F) -> Fragment<'b, 'w, 's>
     where
         F: FnOnce() -> B,
         B: Bundle,
@@ -109,7 +106,7 @@ where
     /// Insert or update a node. The uid must be unique.
     /// The children of the node will be updated using the closure passed in `children`.
     /// Reinserts the bundle even if entity already exists.
-    pub fn dyn_node<'b, B>(&'b mut self, uid: u64, bundle: B) -> Updater<'b, 'w, 's, T>
+    pub fn dyn_node<'b, B>(&'b mut self, uid: u64, bundle: B) -> Fragment<'b, 'w, 's>
     where
         B: Bundle,
     {
@@ -147,7 +144,7 @@ where
     }
 
     /// Spawn and insert a new entity at `self.cursor`.
-    fn insert<'b, B>(&'b mut self, uid: u64, bundle: B) -> Updater<'b, 'w, 's, T>
+    fn insert<'b, B>(&'b mut self, uid: u64, bundle: B) -> Fragment<'b, 'w, 's>
     where
         B: Bundle,
     {
@@ -170,10 +167,7 @@ where
     }
 }
 
-impl<'a, 'w, 's, T> Drop for Updater<'a, 'w, 's, T>
-where
-    T: Transition,
-{
+impl<'a, 'w, 's> Drop for Fragment<'a, 'w, 's> {
     fn drop(&mut self) {
         for child in self.children.drain(self.cursor..self.children.len()) {
             self.transition.remove(self.commands.entity(child.entity));
@@ -189,17 +183,15 @@ where
 }
 
 impl Child {
-    fn updater<'a, 'w, 's, T>(
+    fn updater<'a, 'w, 's>(
         &'a mut self,
         commands: &'a mut Commands<'w, 's>,
         query: &'a Query<'w, 's, (&'static Node, &'static Transform)>,
-        transition: T,
+        transition: &'a dyn Transition,
         transition_root: bool,
-    ) -> Updater<'a, 'w, 's, T>
-    where
-        T: Transition,
+    ) -> Fragment<'a, 'w, 's>
     {
-        Updater {
+        Fragment {
             parent: Some(self.entity),
             children: &mut self.children,
             commands,

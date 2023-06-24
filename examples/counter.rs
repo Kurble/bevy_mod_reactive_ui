@@ -39,32 +39,25 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 fn some_ui_system(mut mount: Mount, state: Res<Counter>, assets: Res<LoadedAssets>) {
-    if state.is_changed() {
-        let slide = SlideTransition {
-            direction: Vec2::new(-80.0, 0.0),
-            duration: Duration::from_millis(300),
-        };
-        mount.update_with_transition(&slide, |frag| {
-            frag.node(id!(), vbox).with(|frag| {
-                counter(frag, &state, &assets);
+    let slide = SlideTransition {
+        direction: Vec2::new(-80.0, 0.0),
+        duration: Duration::from_millis(300),
+    };
+    mount.update_with_transition(&slide, |frag| {
+        frag.add(id!(), vbox).with(|frag| {
+            if state.value < 10 {
+                frag.add(id!(), || button().on_click(on_up).on_event(on_up_key))
+                    .add(id!(), || label("up", assets.text_style.clone()));
+            }
+            frag.add_dyn(id!(), state.is_changed(), || {
+                label(format!("count: {}", state.value), assets.text_style.clone())
             });
+            if state.value > 0 {
+                frag.add(id!(), || button().on_click(on_down).on_event(on_down_key))
+                    .add(id!(), || label("down", assets.text_style.clone()));
+            }
         });
-    }
-}
-
-fn counter(frag: &mut Fragment, state: &Counter, assets: &LoadedAssets) {
-    if state.value < 10 {
-        frag.node(id!(), || button().on_click(on_up).on_event(on_up_key))
-            .node(id!(), || label("up", assets.text_style.clone()));
-    }
-    frag.dyn_node(
-        id!(),
-        label(format!("count: {}", state.value), assets.text_style.clone()),
-    );
-    if state.value > 0 {
-        frag.node(id!(), || button().on_click(on_down).on_event(on_down_key))
-            .node(id!(), || label("down", assets.text_style.clone()));
-    }
+    });
 }
 
 fn on_up(mut state: ResMut<Counter>) {
@@ -92,8 +85,11 @@ fn vbox() -> impl Bundle {
         style: Style {
             display: Display::Flex,
             flex_direction: FlexDirection::Column,
-            margin: UiRect::all(Val::Px(32.0)),
+            justify_content: JustifyContent::SpaceEvenly,
+            align_self: AlignSelf::Center,
+            margin: UiRect::horizontal(Val::Auto),
             padding: UiRect::all(Val::Px(32.0)),
+            size: Size::all(Val::Px(256.0)),            
             ..default()
         },
         background_color: BackgroundColor(Color::GRAY),

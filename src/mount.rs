@@ -1,30 +1,38 @@
 use bevy::ecs::system::{Command, SystemParam};
 use bevy::prelude::*;
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 
 use crate::transition::{DefaultTransition, Transition};
 
 #[derive(SystemParam)]
 pub struct Mount<'w, 's> {
-    root: Local<'s, Vec<Child>>,
-    query: Query<'w, 's, (&'static Node, &'static Transform)>,
+    root: Local<'s, Container>,
     commands: Commands<'w, 's>,
 }
 
 pub struct Fragment<'a, 'w, 's> {
+    begin: usize,
+    cursor: usize,
+    len: usize,
+    count: usize,
+    changed: bool,
+
     parent: Option<Entity>,
     commands: &'a mut Commands<'w, 's>,
     children: &'a mut Vec<Child>,
-    query: &'a Query<'w, 's, (&'static Node, &'static Transform)>,
-    cursor: usize,
+    parent_cursor: &'a mut usize,
+
     transition: &'a dyn Transition,
     transition_root: bool,
 }
 
+struct Container(Vec<Child>);
+
 struct Child {
     uid: u64,
     entity: Entity,
-    children: Vec<Self>,
+    size: usize,
+    count: usize,
 }
 
 struct InsertChildrenInOrder {
@@ -44,12 +52,19 @@ impl<'w, 's> Mount<'w, 's> {
     where
         F: FnOnce(&mut Fragment),
     {
+        let mut cursor = 0;
         let mut updater = Fragment {
+            begin: 1,
+            cursor: 1,
+            len: self.root.len(),
+            count: 0,
+            changed: false,
+
             parent: None,
             commands: &mut self.commands,
-            children: &mut *self.root,
-            query: &self.query,
-            cursor: 0,
+            children: self.root.get(),
+            parent_cursor: &mut cursor,
+
             transition,
             transition_root: true,
         };
@@ -68,10 +83,16 @@ impl<'a, 'w, 's> Fragment<'a, 'w, 's> {
         fragment: F,
     ) {
         let mut updater = Fragment {
-            children: &mut *self.children,
-            commands: &mut *self.commands,
-            query: self.query,
+            begin: self.begin,
             cursor: self.cursor,
+            count: self.count,
+            len: self.len,
+            changed: false,
+
+            children: self.children,
+            commands: self.commands,
+            parent_cursor: self.parent_cursor,
+
             parent: self.parent.take(),
             transition,
             transition_root: self.transition_root,
@@ -80,67 +101,80 @@ impl<'a, 'w, 's> Fragment<'a, 'w, 's> {
         fragment(&mut updater);
 
         self.cursor = updater.cursor;
+        self.count = updater.count;
+        self.len = updater.len;
     }
 
-    /// Insert or update a node. The uid must be unique.
+    /// Spawn or update an entity. The uid must be unique.
     /// If the entity already exists, it's bundle is not updated.
     /// The children of the node will be updated using the closure passed in `children`.
-    pub fn node<'b, F, B>(&'b mut self, uid: u64, bundle: F) -> Fragment<'b, 'w, 's>
+    pub fn add<'b, F, B>(&'b mut self, uid: u64, bundle: F) -> Fragment<'b, 'w, 's>
     where
         F: FnOnce() -> B,
         B: Bundle,
     {
         if self.find_uid(uid) {
-            self.cursor += 1;
-            self.children[self.cursor - 1].updater(
-                &mut *self.commands,
-                self.query,
-                self.transition,
-                self.transition_root,
-            )
+            self.inner(self.children[self.cursor].entity, self.transition_root)
         } else {
             self.insert(uid, bundle())
         }
     }
 
     /// Insert or update a node. The uid must be unique.
+    /// If the entity already exists, it's bundle is only updated if `update` is true.
     /// The children of the node will be updated using the closure passed in `children`.
-    /// Reinserts the bundle even if entity already exists.
-    pub fn dyn_node<'b, B>(&'b mut self, uid: u64, bundle: B) -> Fragment<'b, 'w, 's>
+    pub fn add_dyn<'b, F, B>(
+        &'b mut self,
+        uid: u64,
+        update: bool,
+        bundle: F,
+    ) -> Fragment<'b, 'w, 's>
     where
+        F: FnOnce() -> B,
         B: Bundle,
     {
         if self.find_uid(uid) {
-            self.commands
-                .entity(self.children[self.cursor].entity)
-                .insert(bundle);
-            self.cursor += 1;
-            self.children[self.cursor - 1].updater(
-                &mut *self.commands,
-                self.query,
-                self.transition,
-                self.transition_root,
-            )
+            if update {
+                self.commands
+                    .entity(self.children[self.cursor].entity)
+                    .insert(bundle());
+            }
+            self.inner(self.children[self.cursor].entity, self.transition_root)
         } else {
-            self.insert(uid, bundle)
+            self.insert(uid, bundle())
         }
     }
 
     /// Attempt to find a child with the queried uid. Returns `true` if it was found.
     /// After calling this function, `self.cursor` is set to the new position for the queried uid.
     fn find_uid(&mut self, uid: u64) -> bool {
-        for i in self.cursor..self.children.len() {
+        let mut i = self.cursor;
+        for j in self.count..self.len {
             if self.children[i].uid == uid {
-                // in-between children are considered to have disappeared.
-                for child in self.children.drain(self.cursor..i) {
-                    self.transition.remove(self.commands.entity(child.entity));
-                }
+                // in-between children are considered to have disappeared
+                self.remove(j - self.count);
                 // uid has been found, and it's now at self.cursor.
                 return true;
+            } else {
+                i += self.children[i].size;
             }
         }
         // uid not found, this child is considered to have newly appeared.
         false
+    }
+
+    fn remove(&mut self, count: usize) {
+        if count > 0 {
+            let mut i = self.cursor;
+            for _ in 0..count {
+                self.transition
+                    .remove(self.commands.entity(self.children[i].entity));
+                i += self.children[i].size;
+            }
+            self.children.drain(self.cursor..i);
+            self.len -= count;
+            self.changed = true;
+        }
     }
 
     /// Spawn and insert a new entity at `self.cursor`.
@@ -150,55 +184,66 @@ impl<'a, 'w, 's> Fragment<'a, 'w, 's> {
     {
         let mut entity = self.commands.spawn(bundle);
         self.transition.insert(&mut entity, self.transition_root);
-        let child = Child {
-            uid,
-            entity: entity.id(),
-            children: vec![],
-        };
+        self.children
+            .insert(self.cursor, Child::new(uid, entity.id()));
+        self.len += 1;
+        self.changed = true;
+        self.inner(self.children[self.cursor].entity, false)
+    }
 
-        self.children.insert(self.cursor, child);
-        self.cursor += 1;
-        self.children[self.cursor - 1].updater(
-            &mut *self.commands,
-            self.query,
-            self.transition,
-            false,
-        )
+    fn inner<'b>(&'b mut self, parent: Entity, root: bool) -> Fragment<'b, 'w, 's> {
+        self.count += 1;
+
+        Fragment {
+            begin: self.cursor + 1,
+            cursor: self.cursor + 1,
+            len: self.children[self.cursor].count,
+            count: 0,
+            changed: false,
+
+            parent: Some(parent),
+            commands: self.commands,
+            children: self.children,
+            parent_cursor: &mut self.cursor,
+
+            transition: self.transition,
+            transition_root: root,
+        }
     }
 }
 
 impl<'a, 'w, 's> Drop for Fragment<'a, 'w, 's> {
     fn drop(&mut self) {
-        for child in self.children.drain(self.cursor..self.children.len()) {
-            self.transition.remove(self.commands.entity(child.entity));
+        self.remove(self.len - self.count);
+
+        if self.changed {
+            let size = self.cursor - *self.parent_cursor;
+            self.children[*self.parent_cursor].size = size;
+            self.children[*self.parent_cursor].count = self.count;
+
+            if let Some(parent) = self.parent {
+                let mut i = self.begin;
+                let mut children = smallvec![];
+                for _ in 0..self.count {
+                    children.push(self.children[i].entity);
+                    i += self.children[i].size;
+                }
+                self.commands
+                    .add(InsertChildrenInOrder { parent, children });
+            }
         }
 
-        if let Some(parent) = self.parent {
-            self.commands.add(InsertChildrenInOrder {
-                parent,
-                children: self.children.iter().map(|c| c.entity).collect(),
-            });
-        }
+        *self.parent_cursor = self.cursor;
     }
 }
 
 impl Child {
-    fn updater<'a, 'w, 's>(
-        &'a mut self,
-        commands: &'a mut Commands<'w, 's>,
-        query: &'a Query<'w, 's, (&'static Node, &'static Transform)>,
-        transition: &'a dyn Transition,
-        transition_root: bool,
-    ) -> Fragment<'a, 'w, 's>
-    {
-        Fragment {
-            parent: Some(self.entity),
-            children: &mut self.children,
-            commands,
-            query,
-            cursor: 0,
-            transition,
-            transition_root,
+    fn new(uid: u64, entity: Entity) -> Self {
+        Self {
+            entity,
+            uid,
+            size: 1,
+            count: 0,
         }
     }
 }
@@ -223,6 +268,27 @@ impl Command for InsertChildrenInOrder {
         } else {
             parent.push_children(&self.children);
         }
+    }
+}
+
+impl Container {
+    fn len(&self) -> usize {
+        self.0[0].count
+    }
+
+    fn get(&mut self) -> &mut Vec<Child> {
+        &mut self.0
+    }
+}
+
+impl FromWorld for Container {
+    fn from_world(_: &mut World) -> Self {
+        Container(vec![Child {
+            count: 0,
+            size: 1,
+            entity: Entity::PLACEHOLDER,
+            uid: 0,
+        }])
     }
 }
 

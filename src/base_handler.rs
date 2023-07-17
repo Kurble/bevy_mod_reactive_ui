@@ -109,8 +109,8 @@ unsafe impl<'s, In: 'static, Out: 'static> SystemParam for HandlerParam<'s, In, 
     unsafe fn get_param<'world, 'state>(
         state: &'state mut Self::State,
         _: &bevy::ecs::system::SystemMeta,
-        _: &'world World,
-        _: u32,
+        _: bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell<'world>,
+        _: bevy::ecs::component::Tick,
     ) -> Self::Item<'world, 'state> {
         HandlerParam(state)
     }

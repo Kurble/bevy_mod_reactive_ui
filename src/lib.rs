@@ -1,7 +1,7 @@
 mod base_handler;
 mod event_handler;
 mod interaction_handler;
-mod mount;
+mod shadow;
 mod transition;
 
 pub use event_handler::{EventHandler, SetEventHandler};
@@ -9,7 +9,7 @@ use interaction_handler::{
     make_interaction_handler_system, OnClick, OnClickEnd, OnHover, OnHoverEnd,
 };
 pub use interaction_handler::{InteractionHandler, SetInteractionHandler};
-pub use mount::{Mount, Fragment};
+pub use shadow::{Shadow, ShadowScene};
 pub use transition::*;
 
 use bevy::{
@@ -18,20 +18,22 @@ use bevy::{
     ui::UiSystem,
 };
 
-pub struct ReactivePlugin;
+pub struct ShadowScenePlugin;
 
-impl Plugin for ReactivePlugin {
+impl Plugin for ShadowScenePlugin {
     fn build(&self, app: &mut App) {
-        app.add_system(make_interaction_handler_system::<OnClick>());
-        app.add_system(make_interaction_handler_system::<OnClickEnd>());
-        app.add_system(make_interaction_handler_system::<OnHover>());
-        app.add_system(make_interaction_handler_system::<OnHoverEnd>());
-        app.add_system(event_handler::make_event_handler_system::<KeyboardInput>());
-        app.add_system(event_handler::make_event_handler_system::<GamepadEvent>());
-        app.add_system(
-            slide_transition_system
-                .in_set(UiSystem::Flex)
-                .after(bevy::ui::flex_node_system),
+        app.add_systems(
+            Update,
+            (
+                make_interaction_handler_system::<OnClick>(),
+                make_interaction_handler_system::<OnClickEnd>(),
+                make_interaction_handler_system::<OnHover>(),
+                make_interaction_handler_system::<OnHoverEnd>(),
+                event_handler::make_event_handler_system::<KeyboardInput>(),
+                event_handler::make_event_handler_system::<GamepadEvent>(),
+            ),
         );
+
+        app.add_systems(PostUpdate, slide_transition_system.after(UiSystem::Layout));
     }
 }

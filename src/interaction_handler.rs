@@ -97,13 +97,13 @@ impl<Filter: InteractionFilter> InteractionHandler<Filter> {
 
 impl InteractionFilter for OnClick {
     fn filter(_from: &Interaction, to: &Interaction) -> bool {
-        matches!(to, &Interaction::Clicked)
+        matches!(to, &Interaction::Pressed)
     }
 }
 
 impl InteractionFilter for OnClickEnd {
     fn filter(from: &Interaction, _to: &Interaction) -> bool {
-        matches!(from, &Interaction::Clicked)
+        matches!(from, &Interaction::Pressed)
     }
 }
 

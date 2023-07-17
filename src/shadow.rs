@@ -5,12 +5,12 @@ use smallvec::{smallvec, SmallVec};
 use crate::transition::{DefaultTransition, Transition};
 
 #[derive(SystemParam)]
-pub struct Mount<'w, 's> {
+pub struct ShadowScene<'w, 's> {
     root: Local<'s, Container>,
     commands: Commands<'w, 's>,
 }
 
-pub struct Fragment<'a, 'w, 's> {
+pub struct Shadow<'a, 'w, 's> {
     begin: usize,
     cursor: usize,
     len: usize,
@@ -40,20 +40,20 @@ struct InsertChildrenInOrder {
     children: SmallVec<[Entity; 8]>,
 }
 
-impl<'w, 's> Mount<'w, 's> {
+impl<'w, 's> ShadowScene<'w, 's> {
     pub fn update<F>(&mut self, fragment: F)
     where
-        F: FnOnce(&mut Fragment),
+        F: FnOnce(&mut Shadow),
     {
         self.update_with_transition(&DefaultTransition, fragment);
     }
 
     pub fn update_with_transition<F>(&mut self, transition: &dyn Transition, fragment: F)
     where
-        F: FnOnce(&mut Fragment),
+        F: FnOnce(&mut Shadow),
     {
         let mut cursor = 0;
-        let mut updater = Fragment {
+        let mut updater = Shadow {
             begin: 1,
             cursor: 1,
             len: self.root.len(),
@@ -72,17 +72,17 @@ impl<'w, 's> Mount<'w, 's> {
     }
 }
 
-impl<'a, 'w, 's> Fragment<'a, 'w, 's> {
-    pub fn with<F: FnOnce(&mut Fragment)>(mut self, fragment: F) {
+impl<'a, 'w, 's> Shadow<'a, 'w, 's> {
+    pub fn with<F: FnOnce(&mut Shadow)>(mut self, fragment: F) {
         fragment(&mut self);
     }
 
-    pub fn with_transition<F: FnOnce(&mut Fragment)>(
+    pub fn with_transition<F: FnOnce(&mut Shadow)>(
         mut self,
         transition: &dyn Transition,
         fragment: F,
     ) {
-        let mut updater = Fragment {
+        let mut updater = Shadow {
             begin: self.begin,
             cursor: self.cursor,
             count: self.count,
@@ -108,7 +108,7 @@ impl<'a, 'w, 's> Fragment<'a, 'w, 's> {
     /// Spawn or update an entity. The uid must be unique.
     /// If the entity already exists, it's bundle is not updated.
     /// The children of the node will be updated using the closure passed in `children`.
-    pub fn add<'b, F, B>(&'b mut self, uid: u64, bundle: F) -> Fragment<'b, 'w, 's>
+    pub fn spawn<'b, F, B>(&'b mut self, uid: u64, bundle: F) -> Shadow<'b, 'w, 's>
     where
         F: FnOnce() -> B,
         B: Bundle,
@@ -123,12 +123,12 @@ impl<'a, 'w, 's> Fragment<'a, 'w, 's> {
     /// Insert or update a node. The uid must be unique.
     /// If the entity already exists, it's bundle is only updated if `update` is true.
     /// The children of the node will be updated using the closure passed in `children`.
-    pub fn add_dyn<'b, F, B>(
+    pub fn spawn_dyn<'b, F, B>(
         &'b mut self,
         uid: u64,
         update: bool,
         bundle: F,
-    ) -> Fragment<'b, 'w, 's>
+    ) -> Shadow<'b, 'w, 's>
     where
         F: FnOnce() -> B,
         B: Bundle,
@@ -178,7 +178,7 @@ impl<'a, 'w, 's> Fragment<'a, 'w, 's> {
     }
 
     /// Spawn and insert a new entity at `self.cursor`.
-    fn insert<'b, B>(&'b mut self, uid: u64, bundle: B) -> Fragment<'b, 'w, 's>
+    fn insert<'b, B>(&'b mut self, uid: u64, bundle: B) -> Shadow<'b, 'w, 's>
     where
         B: Bundle,
     {
@@ -191,10 +191,10 @@ impl<'a, 'w, 's> Fragment<'a, 'w, 's> {
         self.inner(self.children[self.cursor].entity, false)
     }
 
-    fn inner<'b>(&'b mut self, parent: Entity, root: bool) -> Fragment<'b, 'w, 's> {
+    fn inner<'b>(&'b mut self, parent: Entity, root: bool) -> Shadow<'b, 'w, 's> {
         self.count += 1;
 
-        Fragment {
+        Shadow {
             begin: self.cursor + 1,
             cursor: self.cursor + 1,
             len: self.children[self.cursor].count,
@@ -212,7 +212,7 @@ impl<'a, 'w, 's> Fragment<'a, 'w, 's> {
     }
 }
 
-impl<'a, 'w, 's> Drop for Fragment<'a, 'w, 's> {
+impl<'a, 'w, 's> Drop for Shadow<'a, 'w, 's> {
     fn drop(&mut self) {
         self.remove(self.len - self.count);
 
@@ -249,7 +249,7 @@ impl Child {
 }
 
 impl Command for InsertChildrenInOrder {
-    fn write(self, world: &mut World) {
+    fn apply(self, world: &mut World) {
         let mut parent = world.entity_mut(self.parent);
 
         if let Some(existing) = parent

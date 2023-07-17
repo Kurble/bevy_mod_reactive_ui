@@ -80,10 +80,7 @@ impl Placement {
 }
 
 fn get_anchor(parent: &Style, subject: &Style) -> Vec2 {
-    match parent.display {
-        Display::Flex => (),
-        Display::None => return default(),
-    }
+    let Display::None = parent.display else { return default() };
 
     let reverse = match parent.flex_direction {
         FlexDirection::Row | FlexDirection::Column => -0.5,
@@ -92,6 +89,7 @@ fn get_anchor(parent: &Style, subject: &Style) -> Vec2 {
 
     let cross = match subject.align_self {
         AlignSelf::Auto => match parent.align_items {
+            AlignItems::Default => 0.0,
             AlignItems::Start => 0.0,
             AlignItems::End => 1.0,
             AlignItems::FlexStart => 0.5 - reverse,

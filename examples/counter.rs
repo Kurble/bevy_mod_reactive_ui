@@ -8,10 +8,17 @@ use bevy_mod_reactive_ui::*;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugin(ReactivePlugin)
-        .add_system(some_ui_system)
-        .add_startup_system(setup)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Demo".into(),
+                resolution: (400., 300.).into(),
+                ..default()
+            }),
+            ..default()
+        }))
+        .add_plugins(ShadowScenePlugin)
+        .add_systems(Startup, setup)
+        .add_systems(Update, some_ui_system)
         .insert_resource(Counter { value: 0 })
         .run();
 }
@@ -38,23 +45,25 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     });
 }
 
-fn some_ui_system(mut mount: Mount, state: Res<Counter>, assets: Res<LoadedAssets>) {
+fn some_ui_system(mut shadow: ShadowScene, state: Res<Counter>, assets: Res<LoadedAssets>) {
     let slide = SlideTransition {
         direction: Vec2::new(-80.0, 0.0),
         duration: Duration::from_millis(300),
     };
-    mount.update_with_transition(&slide, |frag| {
-        frag.add(id!(), vbox).with(|frag| {
+    shadow.update_with_transition(&slide, |shadow| {
+        shadow.spawn(id!(), vbox).with(|shadow| {
             if state.value < 10 {
-                frag.add(id!(), || button().on_click(on_up).on_event(on_up_key))
-                    .add(id!(), || label("up", assets.text_style.clone()));
+                shadow
+                    .spawn(id!(), || button().on_click(on_up).on_event(on_up_key))
+                    .spawn(id!(), || label("up", assets.text_style.clone()));
             }
-            frag.add_dyn(id!(), state.is_changed(), || {
+            shadow.spawn_dyn(id!(), state.is_changed(), || {
                 label(format!("count: {}", state.value), assets.text_style.clone())
             });
             if state.value > 0 {
-                frag.add(id!(), || button().on_click(on_down).on_event(on_down_key))
-                    .add(id!(), || label("down", assets.text_style.clone()));
+                shadow
+                    .spawn(id!(), || button().on_click(on_down).on_event(on_down_key))
+                    .spawn(id!(), || label("down", assets.text_style.clone()));
             }
         });
     });
@@ -89,7 +98,8 @@ fn vbox() -> impl Bundle {
             align_self: AlignSelf::Center,
             margin: UiRect::horizontal(Val::Auto),
             padding: UiRect::all(Val::Px(32.0)),
-            size: Size::all(Val::Px(256.0)),            
+            width: Val::Px(256.0),
+            height: Val::Px(256.0),
             ..default()
         },
         background_color: BackgroundColor(Color::GRAY),
